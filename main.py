@@ -1,83 +1,117 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QTableView, QVBoxLayout, \
-    QWidget, QFileDialog, QTabWidget, QLabel
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QStandardItemModel, QStandardItem
+from PyQt5.QtWidgets import (QApplication, QWidget, QPushButton, QVBoxLayout, QLabel,
+                             QFileDialog, QTextEdit, QSpinBox, QHBoxLayout, QMessageBox)
+
 import polars as pl
-import pandas as pd
+import metasynth as ms
 
+class MyApp(QWidget):
+    def __init__(self):
+        super().__init__()
 
-class MainWindow(QMainWindow):
-    def __init__(self, parent=None):
-        super(MainWindow, self).__init__(parent)
+        self.metadata = None
 
-        self.setWindowTitle("CSV Viewer")
+        self.initUI()
 
-        self.table = QTableView(self)
-        self.button = QPushButton("Load CSV", self)
+    def initUI(self):
+        vbox = QVBoxLayout()
 
-        # Create Tabs
-        self.tab_widget = QTabWidget()
-        self.tab1 = QWidget()
-        self.tab2 = QWidget()
-        self.tab3 = QWidget()
+        self.load_dataset_btn = QPushButton('Load Dataset')
+        self.load_dataset_btn.clicked.connect(self.load_dataset)
+        vbox.addWidget(self.load_dataset_btn)
 
-        self.tab_widget.addTab(self.tab1, "Loading Data")
-        self.tab_widget.addTab(self.tab2, "Metadata")
-        self.tab_widget.addTab(self.tab3, "Synthesize Data")
+        self.save_metadata_btn = QPushButton('Save Metadata')
+        self.save_metadata_btn.clicked.connect(self.save_metadata)
+        vbox.addWidget(self.save_metadata_btn)
 
-        # Add elements to each tab
-        self.tab1.layout = QVBoxLayout(self)
-        self.tab1.layout.addWidget(self.button)
-        self.tab1.layout.addWidget(self.table)
-        self.tab1.setLayout(self.tab1.layout)
+        self.load_metadata_btn = QPushButton('Load Metadata')
+        self.load_metadata_btn.clicked.connect(self.load_metadata)
+        vbox.addWidget(self.load_metadata_btn)
 
-        self.metadata_label = QLabel(self.tab2)
-        self.tab2.layout = QVBoxLayout(self)
-        self.tab2.layout.addWidget(self.metadata_label)
-        self.tab2.setLayout(self.tab2.layout)
+        self.preview_metadata_btn = QPushButton('Preview Metadata')
+        self.preview_metadata_btn.clicked.connect(self.preview_metadata)
+        vbox.addWidget(self.preview_metadata_btn)
 
-        self.tab3.layout = QVBoxLayout(self)
-        self.tab3.setLayout(self.tab3.layout)
+        hbox = QHBoxLayout()
+        self.rows_label = QLabel("Rows:")
+        hbox.addWidget(self.rows_label)
+        self.rows_spinbox = QSpinBox()
+        self.rows_spinbox.setRange(1, 10000)
+        hbox.addWidget(self.rows_spinbox)
+        self.generate_data_btn = QPushButton('Generate Synthetic Data')
+        self.generate_data_btn.clicked.connect(self.generate_data)
+        hbox.addWidget(self.generate_data_btn)
+        vbox.addLayout(hbox)
 
-        self.setCentralWidget(self.tab_widget)
+        self.save_data_btn = QPushButton('Save Synthetic Data')
+        self.save_data_btn.clicked.connect(self.save_data)
+        vbox.addWidget(self.save_data_btn)
 
-        self.button.clicked.connect(self.load_csv)
+        self.log_label = QLabel("Logs:")
+        vbox.addWidget(self.log_label)
+        self.log = QTextEdit()
+        vbox.addWidget(self.log)
 
-    def load_csv(self):
-        options = QFileDialog.Options()
-        fileName, _ = QFileDialog.getOpenFileName(self, "QFileDialog.getOpenFileName()", "",
-                                                  "CSV Files (*.csv)",
-                                                  options=options)
-        if fileName:
-            df = pl.read_csv(fileName)  # load csv as polars dataframe
-            pandas_df = df.to_pandas()  # convert it to pandas for display in QTableView
+        self.setLayout(vbox)
+        self.setWindowTitle('MetaSynth GUI')
 
-            # display dataframe metadata
-            metadata = pandas_df.describe(include='all').transpose()
-            self.metadata_label.setText(str(metadata))
+    def preview_metadata(self):
+        if self.metadata:
+            # Convert metadata to JSON
+            metadata_json = self.metadata.to_json("metadatatest.json")
 
-            model = pandasModel(pandas_df)
-            self.table.setModel(model)
+            # Show JSON in a message box
+            msg = QMessageBox()
+            msg.setWindowTitle("Metadata Preview")
+            msg.setText(str(metadata_json))
+            msg.exec_()
+        else:
+            self.log.append("No metadata available. Please load a dataset first.")
 
+    def load_dataset(self):
+        fname = QFileDialog.getOpenFileName(self, 'Open file', './')
 
-class pandasModel(QStandardItemModel):
-    def __init__(self, data, parent=None):
-        QStandardItemModel.__init__(self, parent)
-        self._data = data
-        for row in self._data.values:
-            data_row = [QStandardItem("{}".format(x)) for x in row]
-            self.appendRow(data_row)
+        if fname[0]:
+            self.log.append(f"Loading dataset from {fname[0]}")
+            df = pl.read_csv(fname[0])
+            self.metadata = ms.MetaDataset.from_dataframe(df)
+            self.log.append(f"Successfully created metadata from {fname[0]}")
 
-        self.setHorizontalHeaderLabels(self._data.columns)
+    def save_metadata(self):
+        if self.metadata:
+            fname = QFileDialog.getSaveFileName(self, 'Save file', './')
+            if fname[0]:
+                self.metadata.to_json(fname[0])
+                self.log.append(f"Metadata saved to {fname[0]}")
+        else:
+            self.log.append("No metadata available. Please load a dataset first.")
 
+    def load_metadata(self):
+        fname = QFileDialog.getOpenFileName(self, 'Open file', './')
 
-def main():
+        if fname[0]:
+            self.log.append(f"Loading metadata from {fname[0]}")
+            self.metadata = ms.MetaDataset.from_json(fname[0])
+            self.log.append(f"Successfully loaded metadata from {fname[0]}")
+
+    def generate_data(self):
+        if self.metadata:
+            self.synthetic_data = self.metadata.synthesize(self.rows_spinbox.value())
+            self.log.append(f"Generated {self.rows_spinbox.value()} rows of synthetic data.")
+        else:
+            self.log.append("No metadata available. Please load a dataset or metadata first.")
+
+    def save_data(self):
+        if hasattr(self, 'synthetic_data'):
+            fname = QFileDialog.getSaveFileName(self, 'Save file', './')
+            if fname[0]:
+                self.synthetic_data.write_csv(fname[0])
+                self.log.append(f"Synthetic data saved to {fname[0]}")
+        else:
+            self.log.append("No synthetic data available. Please generate data first.")
+
+if __name__ == '__main__':
     app = QApplication(sys.argv)
-    main = MainWindow()
-    main.show()
+    ex = MyApp()
+    ex.show()
     sys.exit(app.exec_())
-
-
-if __name__ == "__main__":
-    main()
